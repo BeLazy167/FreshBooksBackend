@@ -1,0 +1,36 @@
+{
+  "name": "freshbooksbackend",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "npx tsx --env-file=.env --watch src/index.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/BeLazy167/FreshBooksBackend.git"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/BeLazy167/FreshBooksBackend/issues"
+  },
+  "homepage": "https://github.com/BeLazy167/FreshBooksBackend#readme",
+  "dependencies": {
+    "@neondatabase/serverless": "^0.10.1",
+    "@upstash/redis": "^1.34.3",
+    "cors": "^2.8.5",
+    "drizzle-orm": "^0.35.3",
+    "express": "^5.0.1",
+    "express-rate-limit": "^7.4.1",
+    "ioredis": "^5.4.1",
+    "zod": "^3.23.8"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.7.9"
+  },
+  "type": "module"
+}
