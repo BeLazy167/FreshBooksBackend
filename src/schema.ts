@@ -1,8 +1,15 @@
-import { pgTable, text, timestamp, jsonb, uuid, numeric } from 'drizzle-orm/pg-core';
+import { pgTable, text, timestamp, jsonb, uuid, numeric, boolean } from 'drizzle-orm/pg-core';
+
+export const vegetables = pgTable('vegetables', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull(), 
+  // flag if the vegetable is available in the db 
+  isAvailable: boolean('is_available').default(true),
+});
 
 export const bills = pgTable('bills', {
   id: uuid('id').defaultRandom().primaryKey(),
-  providerId: text('provider_id').notNull(),
+  providerId: uuid('provider_id').notNull().references(() => providers.id),
   providerName: text('provider_name').notNull(),
   items: jsonb('items').notNull(),
   total: numeric('total', { precision: 10, scale: 2 }).notNull(),
@@ -17,3 +24,12 @@ export const providers = pgTable('providers', {
   mobile: text('mobile').notNull(),
   address: text('address'),
 });
+
+export const signers = pgTable('signers', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  name: text('name').notNull(),
+});
+
+
+
+

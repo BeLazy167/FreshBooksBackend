@@ -1,0 +1,1 @@
+ALTER TABLE "vegetables" ADD COLUMN "is_available" boolean DEFAULT true;

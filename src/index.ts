@@ -1,74 +1,37 @@
-// server.ts
 import express, { Request, Response, NextFunction } from 'express';
 import cors from 'cors';
-import dotenv from 'dotenv';
 import { neon } from '@neondatabase/serverless';
 import { drizzle } from 'drizzle-orm/neon-http';
 import { Redis } from '@upstash/redis';
-import { pgTable, text, timestamp, jsonb, uuid } from 'drizzle-orm/pg-core';
-import { createInsertSchema } from 'drizzle-zod';
 import { eq } from 'drizzle-orm';
+import { createSampleProviders, createSampleBills, Provider, Bill } from './utils/createSampleData';
+import { bills, providers, vegetables, signers } from './schema';
+import { createInsertSchema } from 'drizzle-zod';
 import { z } from 'zod';
-import { createSampleProviders, createSampleBills } from './utils/createSampleData';
-import { providers, bills } from './schema';
-// Initialize environment variables
-dotenv.config();
-
-// Types
-export interface Provider {
-  id: string;
-  name: string;
-  mobile: string;
-  address: string;
-}
-
-export interface VegetableItem {
-  id: string;
-  name: string;
-  quantity: number;
-  price: number;
-}
-
-export interface Bill {
-  id: string;
-  providerId: string;
-  providerName: string;
-  items: VegetableItem[];
-  total: number; // Changed from string to number
-  date: Date; 
-  signer?: string;
-  createdAt: Date;
-}
-
-export interface ServiceResponse<T> {
-  data: T | null;
-  error: string | null;
-}
 
 // Database setup
 const sql = neon(process.env.DATABASE_URL!);
 const db = drizzle(sql);
-
-// Schema
-
-// Validation schema
-const insertBillSchema = createInsertSchema(bills, {
-  items: z.array(z.object({
-    id: z.string(),
-    name: z.string(),
-    quantity: z.number(),
-    price: z.number()
-  })),
-  total: z.number() // Ensure total is validated as a number
-});
-
-const insertProviderSchema = createInsertSchema(providers);
 
 // Redis setup
 const redis = new Redis({
   url: process.env.UPSTASH_REDIS_REST_URL!,
   token: process.env.UPSTASH_REDIS_REST_TOKEN!,
 });
+
+// Schema validation
+const vegetableItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  quantity: z.number(),
+  price: z.number()
+});
+
+const billSchema = createInsertSchema(bills).extend({
+  items: z.array(vegetableItemSchema)
+});
+
+const providerSchema = createInsertSchema(providers);
 
 // Cache service
 const cache = {
@@ -83,79 +46,70 @@ const cache = {
   }
 };
 
-// Bill service
-const billService = {
-  async getAll(): Promise<ServiceResponse<Bill[]>> {
-    try {
-      const cached = await cache.get<Bill[]>('bills:all');
-      if (cached) return { data: cached, error: null };
+// Vegetable service
+const vegetableService = {
+  async validateAndCreateVegetables(items: z.infer<typeof vegetableItemSchema>[]) {
+    const validatedItems: (z.infer<typeof vegetableItemSchema> | { id: string; name: string; isAvailable: boolean })[] = [];
+    
+    for (const item of items) {
+      // Check if vegetable exists
+      const [existingVegetable] = await db
+        .select()
+        .from(vegetables)
+        .where(eq(vegetables.name, item.name));
 
-      const data = await db.select().from(bills);
-      await cache.set('bills:all', data);
-      return { data: data as any, error: null };
-    } catch (error) {
-      console.error('Error getting bills:', error);
-      return { data: null, error: 'Failed to fetch bills' };
-    }
-  },
+      if (existingVegetable) {
+        // Verify name matches
+        if (existingVegetable.name !== item.name) {
+          throw new Error(`Vegetable Name ${item.name} exists but with different id: ${existingVegetable.id}`);
+        }
+        validatedItems.push({
+          id: existingVegetable.id,
+          name: existingVegetable.name,
+          isAvailable: existingVegetable.isAvailable ?? false
+        });
+      } else {
+        // Create new vegetable with isAvailable=false
+        const [newVegetable] = await db
+          .insert(vegetables)
+          .values({
+            name: item.name,
+            isAvailable: false
+          })
+          .returning();
 
-  async getById(id: string): Promise<ServiceResponse<Bill>> {
-    try {
-      const cached = await cache.get<Bill>(`bill:${id}`);
-      if (cached) return { data: cached, error: null };
-
-      const [bill] = await db.select().from(bills).where(eq(bills.id, id));
-      if (bill) {
-        await cache.set(`bill:${id}`, bill);
-        return { data: bill as any, error: null };
+        validatedItems.push({
+          id: newVegetable.id,
+          name: newVegetable.name,
+          isAvailable: newVegetable.isAvailable ?? false
+        });
+        console.log(`Added new vegetable: ${item.name} with isAvailable=false`);
       }
-      return { data: null, error: 'Bill not found' };
-    } catch (error) {
-      console.error('Error getting bill:', error);
-      return { data: null, error: 'Failed to fetch bill' };
     }
-  },
-
-  async create(data: Omit<typeof insertBillSchema._type, 'id' | 'date' | 'createdAt'>): Promise<ServiceResponse<Bill>> {
-    try {
-      const [bill] = await db.insert(bills).values(data).returning();
-      await cache.del('bills:all');
-      return { data: bill as any, error: null };
-    } catch (error) {
-      console.error('Error creating bill:', error);
-      return { data: null, error: 'Failed to create bill' };
-    }
-  }
-};
-const providerService = {
-  async getAll(): Promise<ServiceResponse<Provider[]>> {
-    const data = await db.select().from(providers);
-    return { data: data as any, error: null };
-  },
-  async create(data: Omit<typeof insertProviderSchema._type, 'id'>): Promise<ServiceResponse<Provider>> {
-    const [provider] = await db.insert(providers).values(data).returning();
-    return { data: provider as any, error: null };
+    
+    return validatedItems;
   }
 };
 
-// Add this before starting the server
 const initializeSampleData = async () => {
-  const existingProviders = await providerService.getAll();
-  if (existingProviders.data && existingProviders.data.length === 0) {
+  const existingProviders = await db.select().from(providers);
+  if (existingProviders.length === 0) {
     const sampleProviders = createSampleProviders(5);
     for (const provider of sampleProviders) {
-      await providerService.create(provider);
+      await db.insert(providers).values(provider);
     }
     console.log('Sample providers created');
   }
 
-  const existingBills = await billService.getAll();
-  if (existingBills.data && existingBills.data.length === 0) {
-    const providers = await providerService.getAll();
-    if (providers.data) {
-      const sampleBills = createSampleBills(100, providers.data);
+  const existingBills = await db.select().from(bills);
+  if (existingBills.length === 0) {
+    const providers2 = await db.select().from(providers);  
+    if (providers2.length > 0) {
+      const sampleBills = createSampleBills(100, providers2 as Provider[]);
       for (const bill of sampleBills) {
-        await billService.create(bill);
+        // Validate vegetables before inserting sample bills
+        const validatedItems = await vegetableService.validateAndCreateVegetables(bill.items);
+        await db.insert(bills).values({ ...bill, items: validatedItems } as any);
       }
       console.log('Sample bills created');
     }
@@ -164,112 +118,107 @@ const initializeSampleData = async () => {
 
 // Express app setup
 const app = express();
-const port = process.env.PORT || 3000;
-
-// Middleware
 app.use(cors());
 app.use(express.json());
 
-// Error handler type
-type RequestHandler = (
+// Types for request handlers
+type AsyncRequestHandler = (
   req: Request,
   res: Response,
   next: NextFunction
 ) => Promise<void>;
 
-// Async handler wrapper
-const asyncHandler = (fn: RequestHandler) => (
+// Error handler wrapper
+const asyncHandler = (fn: AsyncRequestHandler) => (
   req: Request,
   res: Response,
   next: NextFunction
 ) => {
-  return Promise.resolve(fn(req, res, next)).catch(next);
+  Promise.resolve(fn(req, res, next)).catch(next);
 };
 
-// Routes
-app.get('/api/bills', asyncHandler(async (req, res) => {
-  const result = await billService.getAll();
-  if (result.error) {
-    res.status(500).json({ error: result.error });
-  } else {
-    res.json(result.data);
+// Bill routes
+app.get('/api/bills', asyncHandler(async (req: Request, res: Response) => {
+  const cached = await cache.get<any[]>('bills:all');
+  if (cached) {
+    res.json(cached);
+    return;
   }
-  return undefined;
+
+  const data = await db.select().from(bills);
+  await cache.set('bills:all', data);
+  res.json(data);
 }));
 
-app.get('/api/bills/:id', asyncHandler(async (req, res) => {
-  const result = await billService.getById(req.params.id);
-  if (result.error) {
-    res.status(404).json({ error: result.error });
-  } else {
-    res.json(result.data);
+app.get('/api/bills/:id', asyncHandler(async (req: Request, res: Response) => {
+  const cached = await cache.get<any>(`bill:${req.params.id}`);
+  if (cached) {
+    res.json(cached);
+    return;
   }
+
+  const [bill] = await db.select().from(bills).where(eq(bills.id, req.params.id));
+  if (!bill) {
+    res.status(404).json({ error: 'Bill not found' });
+    return;
+  }
+
+  await cache.set(`bill:${req.params.id}`, bill);
+  res.json(bill);
 }));
 
-app.post('/api/bills', asyncHandler(async (req, res): Promise<void> => {
+app.post('/api/bills', asyncHandler(async (req: Request, res: Response) => {
   try {
-    const validated = insertBillSchema.parse(req.body);
-    const result = await billService.create(validated);
-    if (result.error) {
-      res.status(400).json({ error: result.error });
-      return;
-    }
-    res.status(201).json(result.data);
+    const validated = billSchema.parse(req.body);
+    
+    // Validate and create vegetables if needed
+    const validatedItems = await vegetableService.validateAndCreateVegetables(validated.items);
+    
+    // Insert bill with validated items
+    const [bill] = await db
+      .insert(bills)
+      .values({ ...validated, items: validatedItems })
+      .returning();
+      
+    await cache.del('bills:all');
+    res.status(201).json(bill);
   } catch (error) {
     if (error instanceof Error) {
-      res.status(400).json({ error: 'Invalid bill data', details: error.message });
+      res.status(400).json({ error: error.message });
     } else {
       throw error;
     }
   }
 }));
 
-app.get('/api/providers', asyncHandler(async (req, res) => {
-  const result = await providerService.getAll();
-  res.json(result.data);
+// Provider routes
+app.get('/api/providers', asyncHandler(async (req: Request, res: Response) => {
+  const providerList = await db.select().from(providers);
+  res.json(providerList);
 }));
 
-app.post('/api/providers', asyncHandler(async (req, res) => {
-  const result = await providerService.create(req.body);
-  res.status(201).json(result.data);
+app.post('/api/providers', asyncHandler(async (req: Request, res: Response) => {
+  const validated = providerSchema.parse(req.body);
+  const [provider] = await db.insert(providers).values(validated).returning();
+  res.status(201).json(provider);
 }));
 
-// Error handler middleware
+// Vegetable routes
+app.get('/api/vegetables', asyncHandler(async (req: Request, res: Response) => {
+  const vegetableList = await db.select().from(vegetables);
+  res.json(vegetableList);
+}));
+
+// Error handler
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
   console.error('Error:', err);
   res.status(500).json({ error: 'Internal server error' });
 });
 
-// Health check
-app.get('/health', (_req: Request, res: Response) => {
-  res.json({ status: 'ok', timestamp: new Date().toISOString() });
+const port = process.env.PORT || 3000;
+app.listen(port, () => {
+  initializeSampleData();
+  console.log(`Server running on port ${port}`)
 });
-
-// Start server
-const server = app.listen(port, async () => {
-  console.log(`🚀 Server running on port ${port}`);
-  await initializeSampleData();
-});
-
-// Graceful shutdown
-const shutdown = () => {
-  server.close(() => {
-    console.log('Server shutting down...');
-    process.exit(0);
-  });
-};
-
-// Error handling
-process.on('unhandledRejection', (error: Error) => {
-  console.error('Unhandled Rejection:', error);
-});
-
-process.on('uncaughtException', (error: Error) => {
-  console.error('Uncaught Exception:', error);
-  shutdown();
-});
-
-process.on('SIGTERM', shutdown);
-process.on('SIGINT', shutdown);
 
 export default app;

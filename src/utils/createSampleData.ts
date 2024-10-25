@@ -1,6 +1,27 @@
-import { Bill, Provider, VegetableItem } from '../index';
 import { v4 as uuidv4 } from 'uuid';
 
+export type VegetableItem = {
+  id: string;
+  name: string;
+  quantity: number;
+  price: number;
+}
+export type Provider = {
+  id: string;
+  name: string;
+  mobile: string;
+  address: string;
+}
+export type Bill = {
+  id: string;
+  providerId: string;
+  providerName: string;
+  items: VegetableItem[];
+  total: number;
+  date: Date;
+  signer: string;
+  createdAt: Date;
+}
 const vegetables = [
   'Tomato', 'Cucumber', 'Carrot', 'Broccoli', 'Spinach', 'Potato', 'Onion', 'Lettuce',
   'Cabbage', 'Peas', 'Zucchini', 'Eggplant', 'Pepper', 'Garlic', 'Chili', 'Corn', 'Peach', 'Pear', 'Lemon', 'Lime', 'Grapefruit', 'Kiwi', 'Mango', 'Papaya', 'Passionfruit', 'Pineapple', 'Raspberry', 'Strawberry', 'Watermelon'

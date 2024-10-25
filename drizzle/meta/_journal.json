@@ -15,6 +15,20 @@
       "when": 1729775981090,
       "tag": "0001_graceful_morgan_stark",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1729886516683,
+      "tag": "0002_melodic_wallop",
+      "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1729888364704,
+      "tag": "0003_known_drax",
+      "breakpoints": true
     }
   ]
 }
