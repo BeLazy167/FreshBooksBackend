@@ -85,11 +85,11 @@ const CONFIG = {
  * @constant
  */
 const vegetableItemSchema = z.object({
-    id: z.string(),
+    id: z.string().optional(),
     name: z.string(),
     quantity: z.number().positive(),
     price: z.number().positive(),
-    item_total: z.number(),
+    item_total: z.number().optional(),
 });
 
 /**
@@ -99,6 +99,8 @@ const vegetableItemSchema = z.object({
 const billSchema = createInsertSchema(bills).extend({
     items: z.array(vegetableItemSchema),
     total: z.number().positive(),
+    createdAt: z.date().optional(),
+    date: z.date().optional(),
 });
 
 /**
@@ -106,6 +108,12 @@ const billSchema = createInsertSchema(bills).extend({
  * @constant
  */
 const providerSchema = createInsertSchema(providers);
+
+/**
+ * Schema validation for vegetables
+ * @constant
+ */
+const vegetableSchema = createInsertSchema(vegetables);
 
 // Database setup with connection pooling
 const sql = neon(process.env.DATABASE_URL!);
@@ -447,23 +455,25 @@ app.get(
 app.post(
     "/api/bills",
     asyncHandler(async (req, res) => {
-        const billData = billSchema.parse(req.body);
+        // const billData = billSchema.parse(req.body);
 
         const total = Number(
-            billData.items
+            req.body.items
                 .reduce((sum, item) => sum + item.price * item.quantity, 0)
                 .toFixed(CONFIG.PRICE_DECIMALS)
         );
+        const date = new Date();
 
         const validatedItems =
-            await vegetableService.validateAndCreateVegetables(billData.items);
+            await vegetableService.validateAndCreateVegetables(req.body.items);
 
         const [bill] = await db
             .insert(bills)
             .values({
-                ...billData,
+                ...req.body,
                 items: validatedItems,
                 total: total.toString(),
+                date,
             })
             .returning();
         await cache.del("bills:all");
@@ -522,6 +532,16 @@ app.get(
         const vegetableList = await db.select().from(vegetables);
         await cache.set("vegetables:all", vegetableList);
         res.json(vegetableList);
+    })
+);
+app.post("/api/vegetables", asyncHandler(async (req, res) => {
+        const validated = vegetableSchema.parse(req.body);
+        const [vegetable] = await db
+            .insert(vegetables)
+            .values(validated)
+            .returning();
+        await cache.del("vegetables:all");
+        res.status(201).json(vegetable);
     })
 );
 
