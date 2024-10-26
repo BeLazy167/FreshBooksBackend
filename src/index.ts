@@ -10,7 +10,7 @@ import cors from "cors";
 import { neon } from "@neondatabase/serverless";
 import { drizzle } from "drizzle-orm/neon-http";
 import { Redis } from "@upstash/redis";
-import { eq, InferInsertModel } from "drizzle-orm";
+import { eq, InferInsertModel, desc } from "drizzle-orm";
 import {
     createSampleProviders,
     createSampleBills,
@@ -385,7 +385,7 @@ const createRateLimiter = (windowMs: number, max: number) => {
 
         const current = requests.get(ip) || { count: 0, timestamp: now };
         if (current.timestamp < windowStart) {
-            current.count = 0;  
+            current.count = 0;
             current.timestamp = now;
         }
 
@@ -416,7 +416,7 @@ app.get(
             return;
         }
 
-        const data = await db.select().from(bills);
+        const data = await db.select().from(bills).orderBy(desc(bills.date));
         await cache.set("bills:all", data);
         res.json(data);
     })
@@ -534,7 +534,9 @@ app.get(
         res.json(vegetableList);
     })
 );
-app.post("/api/vegetables", asyncHandler(async (req, res) => {
+app.post(
+    "/api/vegetables",
+    asyncHandler(async (req, res) => {
         const validated = vegetableSchema.parse(req.body);
         const [vegetable] = await db
             .insert(vegetables)
