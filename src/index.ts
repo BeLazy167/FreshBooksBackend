@@ -19,6 +19,7 @@ import {
 import { bills, providers, vegetables, signers } from "./schema";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+import logger from "./logger";
 
 /**
  * Interface for cache operations
@@ -155,7 +156,7 @@ class CacheServiceImpl implements CacheService {
         try {
             return await this.redis.get<T>(key);
         } catch (error) {
-            console.error(`Cache get error for key ${key}:`, error);
+            logger.error("Cache get error", { key, error });
             return null;
         }
     }
@@ -171,7 +172,7 @@ class CacheServiceImpl implements CacheService {
         try {
             await this.redis.set(key, value, { ex: expireSeconds });
         } catch (error) {
-            console.error(`Cache set error for key ${key}:`, error);
+            logger.error("Cache set error", { key, error });
         }
     }
 
@@ -182,7 +183,7 @@ class CacheServiceImpl implements CacheService {
         try {
             await this.redis.del(key);
         } catch (error) {
-            console.error(`Cache delete error for key ${key}:`, error);
+            logger.error("Cache delete error", { key, error });
         }
     }
 }
@@ -312,15 +313,13 @@ const initializeSampleData = async (retries = 3): Promise<void> => {
         }
     } catch (error) {
         if (retries > 0) {
-            console.warn(
-                `Retrying sample data initialization. Attempts remaining: ${
-                    retries - 1
-                }`
-            );
+            logger.warn("Retrying sample data initialization", {
+                attemptsRemaining: retries - 1,
+            });
             await new Promise((resolve) => setTimeout(resolve, 1000));
             await initializeSampleData(retries - 1);
         } else {
-            console.error("Failed to initialize sample data:", error);
+            logger.error("Failed to initialize sample data", { error });
             throw error;
         }
     }
@@ -455,17 +454,27 @@ app.get(
 app.post(
     "/api/bills",
     asyncHandler(async (req, res) => {
-        // const billData = billSchema.parse(req.body);
+        logger.info("Creating new bill", {
+            itemCount: req.body.items.length,
+            providerId: req.body.providerId,
+        });
 
         const total = Number(
             req.body.items
                 .reduce((sum, item) => sum + item.price * item.quantity, 0)
                 .toFixed(CONFIG.PRICE_DECIMALS)
         );
-        const date = new Date();
+        logger.debug("Calculated bill total", { total });
 
+        const date = new Date();
+        const createdAt = date;
+
+        console.log("Validating vegetable items...");
         const validatedItems =
             await vegetableService.validateAndCreateVegetables(req.body.items);
+        console.log("Items validated successfully:", {
+            validatedCount: validatedItems.length,
+        });
 
         const [bill] = await db
             .insert(bills)
@@ -474,9 +483,19 @@ app.post(
                 items: validatedItems,
                 total: total.toString(),
                 date,
+                createdAt,
+                id: crypto.randomUUID(),
             })
             .returning();
+        logger.info("Bill created successfully", {
+            billId: bill.id,
+            total,
+            itemCount: validatedItems.length,
+        });
+
         await cache.del("bills:all");
+        console.log("Cache cleared for bills:all");
+
         res.status(201).json(bill);
     })
 );
@@ -549,12 +568,14 @@ app.post(
 
 // Enhanced error handler with detailed logging
 app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-    console.error("Error details:", {
+    logger.error("Request error", {
         message: err.message,
         stack: err.stack,
         path: req.path,
         method: req.method,
         timestamp: new Date().toISOString(),
+        ip: req.ip,
+        headers: req.headers,
     });
 
     if (err instanceof z.ZodError) {
@@ -571,20 +592,19 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 // Graceful shutdown handling
 const server = app.listen(process.env.PORT || CONFIG.DEFAULT_PORT, () => {
     initializeSampleData()
-        .then(() =>
-            console.log(
-                `Server running on port ${
-                    process.env.PORT || CONFIG.DEFAULT_PORT
-                }`
-            )
-        )
-        .catch(console.error);
+        .then(() => {
+            logger.info("Server started", {
+                port: process.env.PORT || CONFIG.DEFAULT_PORT,
+                nodeEnv: process.env.NODE_ENV,
+            });
+        })
+        .catch((error) => logger.error("Server startup error", { error }));
 });
 
 process.on("SIGTERM", () => {
-    console.log("SIGTERM received. Shutting down gracefully...");
+    logger.info("SIGTERM received. Shutting down gracefully...");
     server.close(() => {
-        console.log("Server closed");
+        logger.info("Server closed");
         process.exit(0);
     });
 });
