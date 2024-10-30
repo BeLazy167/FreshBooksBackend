@@ -1,0 +1,1 @@
+ALTER TABLE "bills" ALTER COLUMN "signer" SET DATA TYPE text;

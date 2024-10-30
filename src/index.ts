@@ -111,6 +111,12 @@ const billSchema = createInsertSchema(bills).extend({
 const providerSchema = createInsertSchema(providers);
 
 /**
+ * Schema validation for signers
+ * @constant
+ */
+const signerSchema = createInsertSchema(signers);
+
+/**
  * Schema validation for vegetables
  * @constant
  */
@@ -236,13 +242,13 @@ class VegetableService {
                 validatedItems.push({
                     ...item,
                     id: existingVegetable.id,
-                    isAvailable: existingVegetable.isAvailable ?? false,
+                    isAvailable: existingVegetable.isAvailable ?? true,
                     item_total,
                 });
             } else {
                 batch.push({
                     name: item.name,
-                    isAvailable: false,
+                    isAvailable: true,
                 } satisfies typeof vegetables.$inferInsert);
             }
         }
@@ -260,7 +266,7 @@ class VegetableService {
                 validatedItems.push({
                     ...originalItem,
                     id: newVeg.id,
-                    isAvailable: false,
+                    isAvailable: true,
                     item_total: Number(
                         (originalItem.price * originalItem.quantity).toFixed(
                             CONFIG.PRICE_DECIMALS
@@ -553,6 +559,7 @@ app.get(
         res.json(vegetableList);
     })
 );
+
 app.post(
     "/api/vegetables",
     asyncHandler(async (req, res) => {
@@ -563,6 +570,29 @@ app.post(
             .returning();
         await cache.del("vegetables:all");
         res.status(201).json(vegetable);
+    })
+);
+
+/**
+ * POST /api/signers - Creates a new signer
+ */
+app.post(
+    "/api/signers",
+    asyncHandler(async (req, res) => {
+        const validated = signerSchema.parse(req.body);
+        const [signer] = await db.insert(signers).values(validated).returning();
+        res.status(201).json(signer);
+    })
+);
+
+/**
+ * GET /api/signers - Retrieves all signers
+ */
+app.get(
+    "/api/signers",
+    asyncHandler(async (req, res) => {
+        const signersList = await db.select().from(signers);
+        res.json(signersList);
     })
 );
 
@@ -591,14 +621,14 @@ app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
 
 // Graceful shutdown handling
 const server = app.listen(process.env.PORT || CONFIG.DEFAULT_PORT, () => {
-    initializeSampleData()
-        .then(() => {
-            logger.info("Server started", {
-                port: process.env.PORT || CONFIG.DEFAULT_PORT,
-                nodeEnv: process.env.NODE_ENV,
-            });
-        })
-        .catch((error) => logger.error("Server startup error", { error }));
+    // initializeSampleData()
+    //     .then(() => {
+    //         logger.info("Server started", {
+    //             port: process.env.PORT || CONFIG.DEFAULT_PORT,
+    //             nodeEnv: process.env.NODE_ENV,
+    //         });
+    //     })
+    //     .catch((error) => logger.error("Server startup error", { error }));
 });
 
 process.on("SIGTERM", () => {
