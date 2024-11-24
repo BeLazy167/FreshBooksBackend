@@ -57,8 +57,14 @@ const billSchema = z.object({
     items: z.array(vegetableItemSchema),
     total: z.number().positive(),
     signer: z.string().optional(),
-    date: z.date().optional(),
-    createdAt: z.date().optional(),
+    date: z
+        .union([z.string(), z.date()])
+        .transform((val) => new Date(val))
+        .optional(),
+    createdAt: z
+        .union([z.string(), z.date()])
+        .transform((val) => new Date(val))
+        .optional(),
 });
 
 const providerSchema = z.object({
@@ -391,7 +397,14 @@ app.get(
 app.post(
     "/api/bills",
     asyncHandler(async (req, res) => {
-        const validated = billSchema.parse(req.body);
+        const now = new Date();
+        const billData = {
+            ...req.body,
+            date: req.body.date || now,
+            createdAt: now,
+        };
+
+        const validated = billSchema.parse(billData);
 
         // Validate and process vegetables
         const validatedItems =
