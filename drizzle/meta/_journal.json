@@ -50,6 +50,13 @@
       "when": 1730255943185,
       "tag": "0006_fancy_the_spike",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1732460896419,
+      "tag": "0007_worthless_chameleon",
+      "breakpoints": true
     }
   ]
 }

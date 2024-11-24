@@ -13,6 +13,8 @@ export const vegetables = pgTable("vegetables", {
     name: text("name").notNull(),
     // flag if the vegetable is available in the db
     isAvailable: boolean("is_available").default(true),
+    hasFixedPrice: boolean("has_fixed_price").default(false),
+    fixedPrice: numeric("fixed_price", { precision: 10, scale: 2 }),
 });
 
 export const bills = pgTable("bills", {
