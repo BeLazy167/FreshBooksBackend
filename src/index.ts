@@ -159,11 +159,12 @@ class VegetableService {
 
             if (existingVegetable) {
                 // Use fixed price if available
-                const price =
-                    existingVegetable.hasFixedPrice &&
-                    existingVegetable.fixedPrice
-                        ? Number(existingVegetable.fixedPrice)
-                        : item.price;
+                // const price =
+                //     existingVegetable.hasFixedPrice &&
+                //     existingVegetable.fixedPrice
+                //         ? Number(existingVegetable.fixedPrice)
+                //         : item.price;
+                const price = item.price;
 
                 const item_total = Number(
                     (price * item.quantity).toFixed(CONFIG.PRICE_DECIMALS)
@@ -478,6 +479,27 @@ app.post(
         const validated = signerSchema.parse(req.body);
         const [signer] = await db.insert(signers).values(validated).returning();
         res.status(201).json(signer);
+    })
+);
+
+/**
+ * POST /api/cache/reset - Resets all cache entries
+ */
+app.get(
+    "/api/cache/reset",
+    asyncHandler(async (req, res) => {
+        logger.info("Resetting cache");
+
+        try {
+            // Reset individual bill caches
+            const keys = await redis.keys("*");
+            await Promise.all(keys.map((key) => cache.del(key)));
+            logger.info("Cache reset successful");
+            res.status(200).json({ message: "Cache reset successful" });
+        } catch (error) {
+            logger.error("Cache reset failed", { error });
+            throw error;
+        }
     })
 );
 
